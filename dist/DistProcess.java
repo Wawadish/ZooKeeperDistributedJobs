@@ -15,7 +15,7 @@ import org.apache.zookeeper.data.*;
 import org.apache.zookeeper.KeeperException.Code;
 
 // TODO
-// Replace XX with your group number.
+// Replace 34 with your group number.
 // You may have to add other interfaces such as for threading, etc., as needed.
 // This class will contain the logic for both your master process as well as the worker processes.
 //  Make sure that the callbacks and watch do not conflict between your master's logic and worker's logic.
@@ -59,7 +59,7 @@ public class DistProcess implements Watcher
 	// Master fetching task znodes...
 	void getTasks()
 	{
-		zk.getChildren("/distXX/tasks", this, this, null);  
+		zk.getChildren("/dist34/tasks", this, this, null);  
 	}
 
 	// Try to become the master.
@@ -67,7 +67,7 @@ public class DistProcess implements Watcher
 	{
 		//Try to create an ephemeral node to be the master, put the hostname and pid of this process as the data.
 		// This is an example of Synchronous API invocation as the function waits for the execution and no callback is involved..
-		zk.create("/distXX/master", pinfo.getBytes(), Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL);
+		zk.create("/dist34/master", pinfo.getBytes(), Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL);
 	}
 
 	public void process(WatchedEvent e)
@@ -84,7 +84,7 @@ public class DistProcess implements Watcher
 
 		System.out.println("DISTAPP : Event received : " + e);
 		// Master should be notified if any new znodes are added to tasks.
-		if(e.getType() == Watcher.Event.EventType.NodeChildrenChanged && e.getPath().equals("/distXX/tasks"))
+		if(e.getType() == Watcher.Event.EventType.NodeChildrenChanged && e.getPath().equals("/dist34/tasks"))
 		{
 			// There has been changes to the children of the node.
 			// We are going to re-install the Watch as well as request for the list of the children.
@@ -121,7 +121,7 @@ public class DistProcess implements Watcher
 				// that should be moved done by a process function as the worker.
 
 				//TODO!! This is not a good approach, you should get the data using an async version of the API.
-				byte[] taskSerial = zk.getData("/distXX/tasks/"+c, false, null);
+				byte[] taskSerial = zk.getData("/dist34/tasks/"+c, false, null);
 
 				// Re-construct our task object.
 				ByteArrayInputStream bis = new ByteArrayInputStream(taskSerial);
@@ -139,8 +139,8 @@ public class DistProcess implements Watcher
 				taskSerial = bos.toByteArray();
 
 				// Store it inside the result node.
-				zk.create("/distXX/tasks/"+c+"/result", taskSerial, Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
-				//zk.create("/distXX/tasks/"+c+"/result", ("Hello from "+pinfo).getBytes(), Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+				zk.create("/dist34/tasks/"+c+"/result", taskSerial, Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+				//zk.create("/dist34/tasks/"+c+"/result", ("Hello from "+pinfo).getBytes(), Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
 			}
 			catch(NodeExistsException nee){System.out.println(nee);}
 			catch(KeeperException ke){System.out.println(ke);}
