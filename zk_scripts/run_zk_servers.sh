@@ -1,6 +1,6 @@
 #!/bin/bash 
 
-#TODO: SPECIFY THE HOSTNAMES OF 4 CS MACHINES (lab2-8, lab2-10, etc...)
+#These scripts should be put under the apache zookeeper folder
 MACHINES=(lab2-10 lab2-11 lab2-13)
 
 tmux new-session \; \
