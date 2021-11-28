@@ -1,6 +1,7 @@
 import java.io.*;
 
 import java.util.*;
+import java.lang.Thread;
 
 // To get the name of the host.
 import java.net.*;
@@ -28,10 +29,18 @@ import org.apache.zookeeper.KeeperException.Code;
 //		Ideally, Watches & CallBacks should only be used to assign the "work" to a separate thread inside your program.
 public class DistProcess implements Watcher
 																		, AsyncCallback.ChildrenCallback
+																		, AsyncCallback.DataCallback
 {
 	ZooKeeper zk;
 	String zkServer, pinfo;
 	boolean isMaster=false;
+	HashMap<String, ActiveWorker> workerNodes = new HashMap<>();
+	LinkedList<String> pendingTasks = new LinkedList<>();
+	HashSet<String> seenTasks = new HashSet<>();
+
+	//Used by the workers
+	byte[] previousTask = null;
+	String workerPath;
 
 	DistProcess(String zkhost)
 	{
@@ -49,9 +58,16 @@ public class DistProcess implements Watcher
 			runForMaster();	// See if you can become the master (i.e, no other master exists)
 			isMaster=true;
 			getTasks(); // Install monitoring on any new tasks that will be created.
-									// TODO monitor for worker tasks?
+			// TODO monitor for worker tasks
+			getWorkers();
+
 		}catch(NodeExistsException nee)
-		{ isMaster=false; } // TODO: What else will you need if this was a worker process?
+		{ 
+			// TODO: What else will you need if this was a worker process?
+			isMaster=false;
+			workerPath = zk.create("/dist34/workers/worker-", "".getBytes(), Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL_SEQUENTIAL);
+			zk.getData(workerPath, this, null, null); //Set watch to get notified when this worker's node's data is updated
+		} 
 
 		System.out.println("DISTAPP : Role : " + " I will be functioning as " +(isMaster?"master":"worker"));
 	}
@@ -62,12 +78,53 @@ public class DistProcess implements Watcher
 		zk.getChildren("/dist34/tasks", this, this, null);  
 	}
 
+	void getWorkers()
+	{
+		zk.getChildren("/dist34/workers", this, this, null);  
+	}
+
 	// Try to become the master.
 	void runForMaster() throws UnknownHostException, KeeperException, InterruptedException
 	{
 		//Try to create an ephemeral node to be the master, put the hostname and pid of this process as the data.
 		// This is an example of Synchronous API invocation as the function waits for the execution and no callback is involved..
 		zk.create("/dist34/master", pinfo.getBytes(), Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL);
+	}
+
+	void checkPendingTasks()
+	{
+		if (!pendingTasks.isEmpty())
+		{
+			String path = pendingTasks.remove(0);
+			zk.getData(path, null, this, null);
+		}
+	}
+
+	void executeTask(byte[] taskSerial)
+	{
+		try 
+		{
+			// Re-construct our task object.
+			ByteArrayInputStream bis = new ByteArrayInputStream(taskSerial);
+			ObjectInput in = new ObjectInputStream(bis);
+			DistTask dt = (DistTask) in.readObject();
+			
+			//Execute the task.
+			dt.compute();
+			
+			// Serialize our Task object back to a byte array!
+			ByteArrayOutputStream bos = new ByteArrayOutputStream();
+			ObjectOutputStream oos = new ObjectOutputStream(bos);
+			oos.writeObject(dt); oos.flush();
+			taskSerial = bos.toByteArray();
+
+			//Update the worker's node in the zk
+			zk.setData(workerPath, taskSerial, -1, null, null);
+			previousTask = taskSerial; //Save the previous task in case our watcher is triggered by the setData we just did.
+			zk.getData(workerPath, this, null, null); //Reset the watcher to listen for the next task
+		} 	
+		catch(IOException io){System.out.println(io);}
+		catch(ClassNotFoundException cne){System.out.println(cne);}
 	}
 
 	public void process(WatchedEvent e)
@@ -84,11 +141,21 @@ public class DistProcess implements Watcher
 
 		System.out.println("DISTAPP : Event received : " + e);
 		// Master should be notified if any new znodes are added to tasks.
-		if(e.getType() == Watcher.Event.EventType.NodeChildrenChanged && e.getPath().equals("/dist34/tasks"))
+		if(e.getType() == Watcher.Event.EventType.NodeChildrenChanged)
 		{
 			// There has been changes to the children of the node.
 			// We are going to re-install the Watch as well as request for the list of the children.
-			getTasks();
+			if (e.getPath().equals("/dist34/tasks")){
+				getTasks();
+			}
+
+			else if (e.getPath().equals("/dist34/workers")){
+				getWorkers();
+			}
+		}
+
+		else if (e.getType() == Watcher.Event.EventType.NodeDataChanged && e.getPath().startsWith("/dist34/workers/")){
+			zk.getData(e.getPath(), null, this, null);
 		}
 	}
 
@@ -112,41 +179,96 @@ public class DistProcess implements Watcher
 		//		The worker must invoke the "compute" function of the Task send by the client.
 		//What to do if you do not have a free worker process?
 		System.out.println("DISTAPP : processResult : " + rc + ":" + path + ":" + ctx);
-		for(String c: children)
+
+
+		if (path.equals("/dist34/workers"))
 		{
-			System.out.println(c);
-			try
+			for (String c : children)
 			{
-				//TODO There is quite a bit of worker specific activities here,
-				// that should be moved done by a process function as the worker.
-
-				//TODO!! This is not a good approach, you should get the data using an async version of the API.
-				byte[] taskSerial = zk.getData("/dist34/tasks/"+c, false, null);
-
-				// Re-construct our task object.
-				ByteArrayInputStream bis = new ByteArrayInputStream(taskSerial);
-				ObjectInput in = new ObjectInputStream(bis);
-				DistTask dt = (DistTask) in.readObject();
-
-				//Execute the task.
-				//TODO: Again, time consuming stuff. Should be done by some other thread and not inside a callback!
-				dt.compute();
-				
-				// Serialize our Task object back to a byte array!
-				ByteArrayOutputStream bos = new ByteArrayOutputStream();
-				ObjectOutputStream oos = new ObjectOutputStream(bos);
-				oos.writeObject(dt); oos.flush();
-				taskSerial = bos.toByteArray();
-
-				// Store it inside the result node.
-				zk.create("/dist34/tasks/"+c+"/result", taskSerial, Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
-				//zk.create("/dist34/tasks/"+c+"/result", ("Hello from "+pinfo).getBytes(), Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+				System.out.println(c);
+				//Add any new workers to the map
+				if (!workerNodes.containsKey("/dist34/workers/"+c))
+				{
+					workerNodes.put("/dist34/workers/"+c, null); //A mapping to null signifies that the worker is idle.
+					checkPendingTasks();
+				}
 			}
-			catch(NodeExistsException nee){System.out.println(nee);}
-			catch(KeeperException ke){System.out.println(ke);}
-			catch(InterruptedException ie){System.out.println(ie);}
-			catch(IOException io){System.out.println(io);}
-			catch(ClassNotFoundException cne){System.out.println(cne);}
+		}
+
+		else if (path.equals("/dist34/tasks"))
+		{
+			for(String c: children)
+			{
+				System.out.println(c);
+				String taskPath = path + "/" + c;
+				if (!seenTasks.contains(taskPath)) {
+					seenTasks.add(taskPath);
+					zk.getData(taskPath, null, this, null);
+				}
+			}
+		}
+	}
+
+	//Asynchronous callback that is invoked by the zk.getData request.
+	public void processResult(int rc, String path, Object ctx, byte[] data, Stat stat)
+	{
+		if (path.startsWith("/dist34/tasks/"))
+		{
+			boolean allWorkersBusy = true;
+			for (Map.Entry e : workerNodes.entrySet())
+			{
+				//This is an idle worker, so give it the task and mark it as busy
+				if (e.getValue() == null)
+				{
+					e.setValue(new ActiveWorker(data, path));
+					zk.setData((String) e.getKey(), data, -1, null, null);
+					zk.getData((String) e.getKey(), this, null, null);
+
+					allWorkersBusy = false;
+					break;
+				}
+			}
+
+			//No workers are currently available, so put task in waiting queue.
+			if (allWorkersBusy)
+			{
+				pendingTasks.add(path);
+			}
+		}
+
+		else if (path.startsWith("/dist34/workers/"))
+		{
+			if (isMaster)
+			{
+				//If the data is the same as the task we just passed to the worker, can happen if the watcher is activated before the worker node is updated.
+				if (Arrays.equals(data, workerNodes.get(path).getData())){
+					zk.getData(path, this, null, null); //Reset the watcher
+				}
+
+				else
+				{
+					AsyncCallback.StringCallback cb = null;
+					String taskPath = workerNodes.get(path).getTaskPath();
+					zk.create(taskPath + "/result", data, Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT, cb, null);
+					workerNodes.put(path, null);
+					checkPendingTasks(); //Now that a worker node just went idle, check if there are any pending tasks.
+				}
+			}
+
+			else
+			{
+				//If the data is the same as the task we just executed, can happen if the watcher is activated before the worker can update its own node.
+				if (Arrays.equals(data, previousTask)){
+					zk.getData(path, this, null, null); //Reset the watcher
+				}
+
+				else
+				{
+					new Thread(() -> {
+						executeTask(data);
+					}).start();
+				}
+			}
 		}
 	}
 
@@ -158,6 +280,9 @@ public class DistProcess implements Watcher
 		dt.startProcess();
 
 		//Replace this with an approach that will make sure that the process is up and running forever.
-		Thread.sleep(10000); 
+		while (true)
+		{
+			Thread.sleep(10000);
+		}
 	}
 }
