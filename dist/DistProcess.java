@@ -75,11 +75,13 @@ public class DistProcess implements Watcher
 	// Master fetching task znodes...
 	void getTasks()
 	{
+		System.out.println("DISTAPP : MASTER: fetching tasks.");
 		zk.getChildren("/dist34/tasks", this, this, null);  
 	}
 
 	void getWorkers()
 	{
+		System.out.println("DISTAPP : MASTER: getting workers.");
 		zk.getChildren("/dist34/workers", this, this, null);  
 	}
 
@@ -95,6 +97,7 @@ public class DistProcess implements Watcher
 	{
 		if (!pendingTasks.isEmpty())
 		{
+			System.out.println("DISTAPP : MASTER: found a pending task");
 			String path = pendingTasks.remove(0);
 			zk.getData(path, null, this, null);
 		}
@@ -189,6 +192,7 @@ public class DistProcess implements Watcher
 				//Add any new workers to the map
 				if (!workerNodes.containsKey("/dist34/workers/"+c))
 				{
+					System.out.println("DISTAPP : Master: A new worker found");
 					workerNodes.put("/dist34/workers/"+c, null); //A mapping to null signifies that the worker is idle.
 					checkPendingTasks();
 				}
@@ -202,6 +206,7 @@ public class DistProcess implements Watcher
 				System.out.println(c);
 				String taskPath = path + "/" + c;
 				if (!seenTasks.contains(taskPath)) {
+					System.out.println("DISTAPP : Master: A new task found");
 					seenTasks.add(taskPath);
 					zk.getData(taskPath, null, this, null);
 				}
@@ -220,6 +225,7 @@ public class DistProcess implements Watcher
 				//This is an idle worker, so give it the task and mark it as busy
 				if (e.getValue() == null)
 				{
+					System.out.println("DISTAPP : Master: Found an idle worker " + (String)e.getKey() + " and assign task " + path +" to it.");
 					e.setValue(new ActiveWorker(data, path));
 					zk.setData((String) e.getKey(), data, -1, null, null);
 					zk.getData((String) e.getKey(), this, null, null);
@@ -232,6 +238,7 @@ public class DistProcess implements Watcher
 			//No workers are currently available, so put task in waiting queue.
 			if (allWorkersBusy)
 			{
+				System.out.println("DISTAPP : Master: All workers are busy and task "+path+" is added to waitlist.");
 				pendingTasks.add(path);
 			}
 		}
@@ -249,6 +256,7 @@ public class DistProcess implements Watcher
 				{
 					AsyncCallback.StringCallback cb = null;
 					String taskPath = workerNodes.get(path).getTaskPath();
+					System.out.println("DISTAPP : Master: Worker "+path+" has done task "+taskPath+" and result znode is created. ");
 					zk.create(taskPath + "/result", data, Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT, cb, null);
 					workerNodes.put(path, null);
 					checkPendingTasks(); //Now that a worker node just went idle, check if there are any pending tasks.
@@ -264,6 +272,7 @@ public class DistProcess implements Watcher
 
 				else
 				{
+						System.out.println("DISTAPP : Worker: Test received, start executing the task. ");
 					new Thread(() -> {
 						executeTask(data);
 					}).start();
