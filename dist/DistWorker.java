@@ -66,7 +66,7 @@ public class DistWorker implements IDistComponent {
 			oos.writeObject(dt);
 			oos.flush();
 			byte[] taskSerial = bos.toByteArray();
-			aZk.create(output_dir, taskSerial, Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL);
+			aZk.create(output_dir, taskSerial, Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
 			System.out.println("DISTAPP : done : created " + output_dir);
 		}catch(Exception e){
 			e.printStackTrace();
