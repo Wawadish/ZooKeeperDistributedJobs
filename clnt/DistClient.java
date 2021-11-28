@@ -44,7 +44,7 @@ public class DistClient implements Watcher
 		byte [] dTaskSerial = bos.toByteArray();
 
 		// Create a sequential znode with the Task object as its data.
-		taskNodeName = zk.create("/dist34/tasks/task-", dTaskSerial, Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT_SEQUENTIAL);
+		taskNodeName = zk.create("/dist34/tasks/task-", dTaskSerial, Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL_SEQUENTIAL);
 		//taskNodeName = zk.create("/dist34/tasks/task-", pinfo.getBytes(), Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT_SEQUENTIAL);
 		System.out.println("DISTAPP : TaskNode : " + taskNodeName);
 

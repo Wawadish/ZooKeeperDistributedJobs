@@ -26,7 +26,7 @@ public class DistWorker implements IDistComponent {
 	public DistWorker(ZooKeeper pZk) throws KeeperException, InterruptedException{
 		System.out.println("DISTAPP : Role : " + " I will be functioning as " + "worker");
 		aZk = pZk;
-		workerNodeName = aZk.create(workers_dir + "/worker-", null, Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT_SEQUENTIAL);
+		workerNodeName = aZk.create(workers_dir + "/worker-", null, Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL_SEQUENTIAL);
 		getTask();
 		System.out.println("DISTAPP : workerNodeName " + workerNodeName);
 
@@ -66,7 +66,7 @@ public class DistWorker implements IDistComponent {
 			oos.writeObject(dt);
 			oos.flush();
 			byte[] taskSerial = bos.toByteArray();
-			aZk.create(output_dir, taskSerial, Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+			aZk.create(output_dir, taskSerial, Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL);
 			System.out.println("DISTAPP : done : created " + output_dir);
 		}catch(Exception e){
 			e.printStackTrace();
